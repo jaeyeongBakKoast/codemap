@@ -55,10 +55,10 @@ codemap scan <path> [--target db|api|deps|frontend|all] [-o output.json] [--verb
 codemap render <erd|sequence|architecture|component|all> --from <json> --format <mermaid|drawio> [-o output]
   # sequence 전용 옵션: [--entries "Class.method,..."] [--label "유스케이스명"]
 codemap doc <table-spec|api-spec|overview|all> --from <json> [-o output]
-codemap export <pdf|docx|xlsx> --from <json|docs/> [-o output] [--template corporate|minimal]
-  # xlsx: scan JSON에서 직접 구조화 데이터로 변환 (--from은 scan JSON 파일)
+codemap export <pdf|docx|xlsx> --from <json|docs/> [-o output] [--template corporate|minimal] [--type table-spec|api-spec]
+  # xlsx: scan JSON에서 직접 구조화 데이터로 변환 (--from은 scan JSON 파일, --type 필수)
   # pdf/docx: 마크다운 문서 디렉토리 또는 scan JSON 모두 가능
-codemap generate <path> -o <output/> [--format mermaid|drawio|all] [--export pdf|docx|xlsx|all]
+codemap generate <path> -o <output/> [--target db|api|deps|frontend|all] [--format mermaid|drawio|all] [--export pdf|docx|xlsx|all]
   # 전체 파이프라인 한번에 실행: scan → render all → doc all → export
 ```
 
