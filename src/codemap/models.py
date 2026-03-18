@@ -92,7 +92,7 @@ class FrontendSchema(BaseModel):
 class ScanResult(BaseModel):
     version: str = "1.0"
     project: str
-    scannedAt: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    scannedAt: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     database: DatabaseSchema = Field(default_factory=DatabaseSchema)
     api: ApiSchema = Field(default_factory=ApiSchema)
     dependencies: DependencySchema = Field(default_factory=DependencySchema)

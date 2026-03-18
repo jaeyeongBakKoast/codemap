@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from codemap.models import (
     ScanResult,
     Table,
@@ -93,4 +95,18 @@ def test_scan_result_to_json():
     assert data["version"] == "1.0"
     assert "database" in data
     assert "api" in data
-    assert "scannedAt" in data
+    assert isinstance(data["scannedAt"], datetime)
+
+
+def test_external_call_via_alias():
+    ec = ExternalCall(**{"from": "GdalService.convert", "type": "process", "command": "gdal_translate", "file": "GdalService.java", "line": 42})
+    assert ec.source == "GdalService.convert"
+    assert ec.type == "process"
+
+
+def test_external_call_serialization():
+    ec = ExternalCall(source="GdalService.convert", type="process", command="gdal_translate", file="GdalService.java", line=42)
+    dumped = ec.model_dump(by_alias=True)
+    assert "from" in dumped
+    assert dumped["from"] == "GdalService.convert"
+    assert "source" not in dumped
