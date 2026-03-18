@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codemap"
+version = "0.1.0"
+description = "Codebase analysis and technical document auto-generation CLI"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "sqlglot>=23.0",
+    "tree-sitter>=0.21",
+    "tree-sitter-java>=0.21",
+    "tree-sitter-typescript>=0.21",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "markdown>=3.5",
+]
+
+[project.optional-dependencies]
+pdf = ["weasyprint>=60.0"]
+docx = ["python-docx>=1.0"]
+all = ["codemap[pdf]", "codemap[docx]"]
+
+[project.scripts]
+codemap = "codemap.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
