@@ -1,0 +1,20 @@
+project:
+  name: "test-project"
+  description: "Test project"
+
+scan:
+  database:
+    paths: ["doc/database/**/*.sql"]
+  backend:
+    paths: ["src/main/java/**/*.java"]
+    framework: spring
+  frontend:
+    paths: ["src/frontend/**/*.{ts,tsx}"]
+    framework: react
+  external:
+    patterns:
+      - type: process
+        keywords: ["ProcessBuilder", "Runtime.exec"]
+
+export:
+  template: "minimal"
