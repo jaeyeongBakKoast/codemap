@@ -102,3 +102,22 @@ def test_scan_sql_comment_schema_qualified(tmp_path):
     tables = scan_sql([sql])
     assert tables[0].comment == "스키마 지정 테이블"
     assert tables[0].columns[0].comment == "스키마 지정 컬럼"
+
+
+def test_scan_sql_named_constraint_pk(tmp_path):
+    """CONSTRAINT pk_name PRIMARY KEY (col) 형태의 PK 감지"""
+    sql = tmp_path / "named_pk.sql"
+    sql.write_text(
+        "CREATE TABLE device (\n"
+        "    device_id INTEGER,\n"
+        "    name VARCHAR(100),\n"
+        "    CONSTRAINT device_pk PRIMARY KEY (device_id)\n"
+        ");\n"
+    )
+    tables = scan_sql([sql])
+    assert len(tables) == 1
+    device_id = next(c for c in tables[0].columns if c.name == "device_id")
+    assert device_id.pk is True
+    assert device_id.nullable is False
+    name_col = next(c for c in tables[0].columns if c.name == "name")
+    assert name_col.pk is False

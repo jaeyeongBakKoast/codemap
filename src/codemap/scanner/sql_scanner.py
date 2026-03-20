@@ -95,16 +95,25 @@ def _parse_create_table(stmt: exp.Create) -> Table | None:
     columns: list[Column] = []
     foreign_keys: list[ForeignKey] = []
 
-    # Collect inline PK columns first
+    # Collect PK columns from all possible locations
     pk_columns: set[str] = set()
     for col_def in schema_expr.expressions:
         if isinstance(col_def, exp.ColumnDef):
+            # Inline: id BIGINT PRIMARY KEY
             for _ in col_def.find_all(exp.PrimaryKeyColumnConstraint):
                 pk_columns.add(col_def.name)
         elif isinstance(col_def, exp.PrimaryKey):
+            # Unnamed: PRIMARY KEY (id)
             for expr in col_def.expressions:
                 if hasattr(expr, "name"):
                     pk_columns.add(expr.name)
+        elif isinstance(col_def, exp.Constraint):
+            # Named: CONSTRAINT pk_name PRIMARY KEY (id)
+            for sub in col_def.expressions:
+                if isinstance(sub, exp.PrimaryKey):
+                    for expr in sub.expressions:
+                        if hasattr(expr, "name"):
+                            pk_columns.add(expr.name)
 
     for col_def in schema_expr.expressions:
         if isinstance(col_def, exp.ColumnDef):
