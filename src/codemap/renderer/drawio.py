@@ -222,61 +222,110 @@ def render_architecture_drawio(scan: ScanResult) -> str:
     mxfile, root = _make_mxfile("Architecture")
 
     cell_counter = 2
-    layers = [
-        ("Frontend", "fillColor=#dae8fc;strokeColor=#6c8ebf;"),
-        ("Backend", "fillColor=#d5e8d4;strokeColor=#82b366;"),
-        ("Database", "fillColor=#fff2cc;strokeColor=#d6b656;"),
-        ("External", "fillColor=#f8cecc;strokeColor=#b85450;"),
+    node_ids: dict[str, str] = {}  # name -> cell_id for edge drawing
+
+    # Classify items into layers
+    controllers: set[str] = set()
+    services: set[str] = set()
+    repositories: set[str] = set()
+
+    for ep in scan.api.endpoints:
+        controllers.add(ep.controller)
+        if ep.service:
+            services.add(ep.service)
+        for call in ep.calls:
+            if "Repository" in call or "Repo" in call:
+                repositories.add(call)
+
+    for mod in scan.dependencies.modules:
+        if mod.layer == "controller":
+            controllers.add(mod.name)
+        elif mod.layer == "service":
+            services.add(mod.name)
+        elif mod.layer == "repository":
+            repositories.add(mod.name)
+
+    frontend_items = [c.name for c in scan.frontend.components]
+    table_items = [t.name for t in scan.database.tables]
+    external_items = [ec.command for ec in scan.dependencies.externalCalls]
+
+    layer_defs = [
+        ("Frontend", "fillColor=#dae8fc;strokeColor=#6c8ebf;", frontend_items),
+        ("Controller", "fillColor=#e1d5e7;strokeColor=#9673a6;", sorted(controllers)),
+        ("Service", "fillColor=#d5e8d4;strokeColor=#82b366;", sorted(services)),
+        ("Repository", "fillColor=#d5e8d4;strokeColor=#82b366;", sorted(repositories)),
+        ("Database", "fillColor=#fff2cc;strokeColor=#d6b656;", table_items),
+        ("External", "fillColor=#f8cecc;strokeColor=#b85450;", external_items),
     ]
 
     y = 20
-    for layer_name, style in layers:
+    for layer_name, style, items in layer_defs:
+        if not items:
+            continue
+
+        # Layer container
+        row_count = (len(items) - 1) // 4 + 1
+        layer_height = 40 + row_count * 50
         lid = str(cell_counter)
         cell_counter += 1
         _add_vertex(
-            root,
-            lid,
-            layer_name,
-            x=20,
-            y=y,
-            width=600,
-            height=80,
-            style=f"rounded=1;whiteSpace=wrap;html=1;{style}",
+            root, lid, layer_name,
+            x=20, y=y, width=700, height=layer_height,
+            style=f"rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;{style}",
         )
 
-        # Populate with items
-        items: list[str] = []
-        if layer_name == "Backend" and scan.api:
-            for ep in scan.api.endpoints:
-                items.append(f"{ep.method} {ep.path}")
-        elif layer_name == "Database" and scan.database:
-            for t in scan.database.tables:
-                items.append(t.name)
-        elif layer_name == "Frontend" and scan.frontend:
-            for c in scan.frontend.components:
-                items.append(c.name)
-        elif layer_name == "External" and scan.dependencies:
-            for ec in scan.dependencies.externalCalls:
-                items.append(ec.command)
+        # Items inside the layer
+        ix, iy = 30, y + 30
+        for item in items:
+            iid = str(cell_counter)
+            cell_counter += 1
+            node_ids[item] = iid
+            _add_vertex(
+                root, iid, item,
+                x=ix, y=iy, width=150, height=30,
+                style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;",
+            )
+            ix += 170
+            if ix > 650:
+                ix = 30
+                iy += 50
 
-        if items:
-            ix = 30
-            for item in items:
-                iid = str(cell_counter)
-                cell_counter += 1
-                _add_vertex(
-                    root,
-                    iid,
-                    item,
-                    x=ix,
-                    y=y + 30,
-                    width=140,
-                    height=30,
-                    style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;",
-                )
-                ix += 160
+        y += layer_height + 20
 
-        y += 120
+    # Draw edges: controller → service
+    for ep in scan.api.endpoints:
+        if ep.controller in node_ids and ep.service and ep.service in node_ids:
+            eid = str(cell_counter)
+            cell_counter += 1
+            _add_edge(root, eid, "", source=node_ids[ep.controller], target=node_ids[ep.service],
+                      style="edgeStyle=orthogonalEdgeStyle;")
+        # service → calls
+        if ep.service and ep.service in node_ids:
+            for call in ep.calls:
+                if call in node_ids:
+                    eid = str(cell_counter)
+                    cell_counter += 1
+                    _add_edge(root, eid, "", source=node_ids[ep.service], target=node_ids[call],
+                              style="edgeStyle=orthogonalEdgeStyle;")
+
+    # Draw edges: module dependencies
+    for mod in scan.dependencies.modules:
+        if mod.name in node_ids:
+            for dep in mod.dependsOn:
+                if dep in node_ids:
+                    eid = str(cell_counter)
+                    cell_counter += 1
+                    _add_edge(root, eid, "", source=node_ids[mod.name], target=node_ids[dep],
+                              style="edgeStyle=orthogonalEdgeStyle;")
+
+    # Draw edges: external calls (source class → command)
+    for ec in scan.dependencies.externalCalls:
+        src_class = ec.source.split(".")[0] if ec.source else ""
+        if src_class in node_ids and ec.command in node_ids:
+            eid = str(cell_counter)
+            cell_counter += 1
+            _add_edge(root, eid, "", source=node_ids[src_class], target=node_ids[ec.command],
+                      style="edgeStyle=orthogonalEdgeStyle;dashed=1;")
 
     return _to_xml_string(mxfile)
 
@@ -292,21 +341,31 @@ def render_component_drawio(deps: DependencySchema) -> str:
     cell_counter = 2
     module_ids: dict[str, str] = {}
 
-    x, y = 20, 20
+    # Collect all names (modules + their dependencies) to create nodes for all
+    all_names: set[str] = set()
+    module_types: dict[str, str] = {}
     for mod in deps.modules:
+        all_names.add(mod.name)
+        module_types[mod.name] = mod.type
+        for dep in mod.dependsOn:
+            all_names.add(dep)
+
+    x, y = 20, 20
+    for name in sorted(all_names):
         mid = str(cell_counter)
         cell_counter += 1
-        module_ids[mod.name] = mid
+        module_ids[name] = mid
+
+        label = f"{name}\n({module_types[name]})" if name in module_types else name
+        style = "rounded=1;whiteSpace=wrap;html=1;"
+        if name not in module_types:
+            # External dependency - use dashed style
+            style = "rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;"
 
         _add_vertex(
-            root,
-            mid,
-            f"{mod.name}\n({mod.type})",
-            x=x,
-            y=y,
-            width=160,
-            height=60,
-            style="rounded=1;whiteSpace=wrap;html=1;",
+            root, mid, label,
+            x=x, y=y, width=160, height=60,
+            style=style,
         )
         x += 220
         if x > 600:
@@ -320,9 +379,7 @@ def render_component_drawio(deps: DependencySchema) -> str:
                 eid = str(cell_counter)
                 cell_counter += 1
                 _add_edge(
-                    root,
-                    eid,
-                    "",
+                    root, eid, "",
                     source=module_ids[mod.name],
                     target=module_ids[dep_name],
                     style="edgeStyle=orthogonalEdgeStyle;",
