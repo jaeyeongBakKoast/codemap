@@ -30,9 +30,9 @@ def run_scan(project_path: Path, config: CodemapConfig, targets: set[str]) -> Sc
     if scan_all or "api" in targets or "deps" in targets:
         from codemap.scanner.java_scanner import scan_java
         java_files = _glob_files(project_path, config.scan.backend.paths)
-        endpoints, modules = scan_java(java_files)
+        endpoints, modules, class_fields = scan_java(java_files)
         if scan_all or "api" in targets:
-            result.api = ApiSchema(endpoints=endpoints)
+            result.api = ApiSchema(endpoints=endpoints, classFields=class_fields)
         if scan_all or "deps" in targets:
             result.dependencies.modules = modules
         logger.info(f"Scanned {len(java_files)} Java files")

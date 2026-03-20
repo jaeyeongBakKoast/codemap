@@ -7,7 +7,7 @@ FIXTURE_DIR = Path(__file__).parent.parent / "fixtures"
 
 
 def test_scan_java_endpoints():
-    endpoints, modules = scan_java(
+    endpoints, modules, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     assert len(endpoints) >= 3
@@ -16,7 +16,7 @@ def test_scan_java_endpoints():
 
 
 def test_scan_java_endpoint_details():
-    endpoints, _ = scan_java(
+    endpoints, _, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
@@ -26,7 +26,7 @@ def test_scan_java_endpoint_details():
 
 
 def test_scan_java_modules():
-    _, modules = scan_java(
+    _, modules, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     service_mod = next((m for m in modules if m.name == "UserService"), None)
@@ -37,7 +37,7 @@ def test_scan_java_modules():
 
 
 def test_scan_java_controller_module():
-    _, modules = scan_java(
+    _, modules, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     ctrl_mod = next((m for m in modules if m.name == "UserController"), None)
@@ -47,13 +47,14 @@ def test_scan_java_controller_module():
 
 
 def test_scan_java_empty():
-    endpoints, modules = scan_java([])
+    endpoints, modules, class_fields = scan_java([])
     assert endpoints == []
     assert modules == []
+    assert class_fields == {}
 
 
 def test_scan_java_endpoint_params():
-    endpoints, _ = scan_java(
+    endpoints, _, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
@@ -65,7 +66,7 @@ def test_scan_java_endpoint_params():
 
 
 def test_scan_java_endpoint_request_body():
-    endpoints, _ = scan_java(
+    endpoints, _, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     post = next((ep for ep in endpoints if ep.method == "POST"), None)
@@ -76,7 +77,7 @@ def test_scan_java_endpoint_request_body():
 
 
 def test_scan_java_endpoint_path_variable():
-    endpoints, _ = scan_java(
+    endpoints, _, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     get_by_id = next((ep for ep in endpoints if "/{id}" in ep.path or ep.path.endswith("/{id}")), None)
@@ -85,7 +86,7 @@ def test_scan_java_endpoint_path_variable():
 
 
 def test_scan_java_return_type():
-    endpoints, _ = scan_java(
+    endpoints, _, _ = scan_java(
         [FIXTURE_DIR / "UserController.java", FIXTURE_DIR / "UserService.java"]
     )
     get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
@@ -106,10 +107,81 @@ def test_scan_java_multi_params(tmp_path):
         '    }\n'
         '}\n'
     )
-    endpoints, _ = scan_java([java_file])
+    endpoints, _, _ = scan_java([java_file])
     assert len(endpoints) == 1
     assert len(endpoints[0].params) == 2
     assert endpoints[0].params[0].name == "keyword"
     assert endpoints[0].params[0].required is True
     assert endpoints[0].params[1].name == "page"
     assert endpoints[0].params[1].required is False
+
+
+def test_scan_java_class_fields():
+    """Entity/DTO 클래스의 필드와 주석을 파싱"""
+    endpoints, modules, class_fields = scan_java(
+        [FIXTURE_DIR / "User.java"]
+    )
+    assert "User" in class_fields
+    fields = class_fields["User"]
+    assert len(fields) == 5
+    id_field = next(f for f in fields if f.name == "id")
+    assert id_field.type == "Long"
+    assert id_field.comment == "사용자 고유번호"
+    email_field = next(f for f in fields if f.name == "email")
+    assert email_field.comment == "이메일 주소"
+
+
+def test_scan_java_class_fields_with_final(tmp_path):
+    """private final 필드에서 final을 제거하고 타입만 추출"""
+    java_file = tmp_path / "FinalFields.java"
+    java_file.write_text(
+        "public class FinalFields {\n"
+        "    // 서비스\n"
+        "    private final UserService userService;\n"
+        "    // 이름\n"
+        "    private String name;\n"
+        "}\n"
+    )
+    _, _, class_fields = scan_java([java_file])
+    assert "FinalFields" in class_fields
+    fields = class_fields["FinalFields"]
+    svc = next(f for f in fields if f.name == "userService")
+    assert svc.type == "UserService"
+    assert svc.comment == "서비스"
+
+
+def test_scan_java_request_fields_resolved():
+    """@RequestBody 타입의 필드가 requestFields로 해석됨"""
+    endpoints, modules, class_fields = scan_java([
+        FIXTURE_DIR / "UserController.java",
+        FIXTURE_DIR / "UserService.java",
+        FIXTURE_DIR / "User.java",
+    ])
+    post = next((ep for ep in endpoints if ep.method == "POST"), None)
+    assert post is not None
+    assert len(post.requestFields) > 0
+    assert any(f.name == "email" for f in post.requestFields)
+
+
+def test_scan_java_response_fields_resolved():
+    """반환 타입에서 inner type을 해석하여 responseFields로 채움"""
+    endpoints, modules, class_fields = scan_java([
+        FIXTURE_DIR / "UserController.java",
+        FIXTURE_DIR / "UserService.java",
+        FIXTURE_DIR / "User.java",
+    ])
+    get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
+    assert get_all is not None
+    assert len(get_all.responseFields) > 0
+    assert any(f.name == "id" for f in get_all.responseFields)
+
+
+def test_scan_java_response_fields_unresolved():
+    """알 수 없는 타입이면 responseFields는 빈 리스트"""
+    endpoints, modules, class_fields = scan_java([
+        FIXTURE_DIR / "UserController.java",
+        FIXTURE_DIR / "UserService.java",
+    ])
+    get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
+    assert get_all is not None
+    assert get_all.responseFields == []

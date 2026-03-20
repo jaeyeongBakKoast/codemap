@@ -5,7 +5,7 @@ import logging
 import re
 from pathlib import Path
 
-from codemap.models import Endpoint, Module, Param
+from codemap.models import Endpoint, Module, Param, JavaField
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,9 @@ _PARAM_ANNOTATION_RE = re.compile(
 )
 _REQUIRED_FALSE_RE = re.compile(r"required\s*=\s*false", re.IGNORECASE)
 
+_FIELD_RE = re.compile(r"private\s+(?:final\s+)?([\w<>,\s\?]+?)\s+(\w+)\s*;")
+_LINE_COMMENT_RE = re.compile(r"^\s*//\s*(.+)$")
+
 
 _LAYER_MAP = {
     "RestController": "controller",
@@ -48,13 +51,14 @@ _HTTP_METHOD_MAP = {
 }
 
 
-def scan_java(java_files: list[Path]) -> tuple[list[Endpoint], list[Module]]:
-    """Parse Spring Boot Java files and extract endpoints and modules."""
+def scan_java(java_files: list[Path]) -> tuple[list[Endpoint], list[Module], dict[str, list[JavaField]]]:
+    """Parse Spring Boot Java files and extract endpoints, modules, and class fields."""
     if not java_files:
-        return [], []
+        return [], [], {}
 
     # First pass: collect class info from all files
     class_info: dict[str, dict] = {}  # class_name -> {layer, deps, endpoints_raw, file}
+    class_fields: dict[str, list[JavaField]] = {}
 
     for java_file in java_files:
         try:
@@ -66,6 +70,14 @@ def scan_java(java_files: list[Path]) -> tuple[list[Endpoint], list[Module]]:
         info = _parse_java_file(source, java_file)
         if info:
             class_info[info["name"]] = info
+
+        # Parse ALL class fields
+        class_name_match = _CLASS_NAME_RE.search(source)
+        if class_name_match:
+            cls_name = class_name_match.group(1)
+            fields = _parse_class_fields(source)
+            if fields:
+                class_fields[cls_name] = fields
 
     # Build modules
     modules: list[Module] = []
@@ -114,7 +126,12 @@ def scan_java(java_files: list[Path]) -> tuple[list[Endpoint], list[Module]]:
                 )
             )
 
-    return endpoints, modules
+    # Resolve request/response fields from class_fields
+    for ep in endpoints:
+        ep.requestFields = _resolve_request_fields(ep, class_fields)
+        ep.responseFields = _resolve_response_fields(ep, class_fields)
+
+    return endpoints, modules, class_fields
 
 
 def _parse_java_file(source: str, file_path: Path) -> dict | None:
@@ -235,6 +252,52 @@ def _extract_return_type(method_sig: str) -> str:
     if m:
         return m.group(1).strip()
     return ""
+
+
+def _parse_class_fields(source: str) -> list[JavaField]:
+    """Extract field declarations (private [final] Type name;) with preceding line comments."""
+    fields: list[JavaField] = []
+    lines = source.split("\n")
+    for i, line in enumerate(lines):
+        m = _FIELD_RE.search(line)
+        if not m:
+            continue
+        field_type = m.group(1).strip()
+        field_name = m.group(2)
+        comment = ""
+        if i > 0:
+            cm = _LINE_COMMENT_RE.match(lines[i - 1])
+            if cm:
+                comment = cm.group(1).strip()
+        fields.append(JavaField(name=field_name, type=field_type, comment=comment))
+    return fields
+
+
+def _extract_inner_type(type_str: str) -> str:
+    """Unwrap generic wrappers like ApiResponse<List<User>> -> User."""
+    m = re.match(r"ApiResponse<(.+)>", type_str)
+    if m:
+        type_str = m.group(1).strip()
+    m = re.match(r"(?:List|Set|Collection)<(.+)>", type_str)
+    if m:
+        type_str = m.group(1).strip()
+    return type_str
+
+
+def _resolve_request_fields(ep: Endpoint, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
+    """Resolve @RequestBody parameter type to its class fields."""
+    for p in ep.params:
+        if p.annotation == "RequestBody" and p.type in class_fields:
+            return class_fields[p.type]
+    return []
+
+
+def _resolve_response_fields(ep: Endpoint, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
+    """Resolve return type to its class fields by unwrapping generics."""
+    if not ep.returnType:
+        return []
+    inner_type = _extract_inner_type(ep.returnType)
+    return class_fields.get(inner_type, [])
 
 
 def _combine_paths(base: str, method: str) -> str:
