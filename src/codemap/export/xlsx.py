@@ -110,26 +110,108 @@ def export_table_spec_xlsx(scan: ScanResult, output: Path) -> None:
 
 def export_api_spec_xlsx(scan: ScanResult, output: Path) -> None:
     wb = openpyxl.Workbook()
+
+    # --- 요약 시트 ---
     ws = wb.active
     ws.title = "엔드포인트 목록"
-
-    headers = ["No", "메서드", "경로", "컨트롤러", "서비스", "파라미터", "반환 타입", "호출"]
+    headers = ["No", "메서드", "경로", "컨트롤러", "서비스", "반환 타입"]
     for ci, h in enumerate(headers, 1):
         ws.cell(row=1, column=ci, value=h)
     _style_header_row(ws, 1, len(headers))
 
     for ei, ep in enumerate(scan.api.endpoints, 1):
         row = ei + 1
-        params_str = ", ".join(f"@{p.annotation} {p.type} {p.name}" for p in ep.params)
         ws.cell(row=row, column=1, value=ei)
         ws.cell(row=row, column=2, value=ep.method)
         ws.cell(row=row, column=3, value=ep.path)
         ws.cell(row=row, column=4, value=ep.controller)
         ws.cell(row=row, column=5, value=ep.service)
-        ws.cell(row=row, column=6, value=params_str)
-        ws.cell(row=row, column=7, value=ep.returnType)
-        ws.cell(row=row, column=8, value=", ".join(ep.calls))
+        ws.cell(row=row, column=6, value=ep.returnType)
         _apply_border(ws, row, len(headers))
-
     _auto_width(ws)
+
+    # --- 엔드포인트별 상세 시트 ---
+    for ei, ep in enumerate(scan.api.endpoints, 1):
+        raw_name = f"{ep.method} {ep.path}"
+        # Excel sheet names cannot contain: / \ ? * [ ] :
+        for ch in r'/\?*[]':
+            raw_name = raw_name.replace(ch, "_")
+        sheet_name = raw_name[:31]
+        ws_ep = wb.create_sheet(title=sheet_name)
+        row = 1
+
+        # 기본 정보
+        ws_ep.cell(row=row, column=1, value="메서드")
+        ws_ep.cell(row=row, column=2, value=ep.method)
+        row += 1
+        ws_ep.cell(row=row, column=1, value="경로")
+        ws_ep.cell(row=row, column=2, value=ep.path)
+        row += 1
+        ws_ep.cell(row=row, column=1, value="컨트롤러")
+        ws_ep.cell(row=row, column=2, value=ep.controller)
+        row += 1
+        ws_ep.cell(row=row, column=1, value="서비스")
+        ws_ep.cell(row=row, column=2, value=ep.service)
+        row += 1
+        ws_ep.cell(row=row, column=1, value="반환 타입")
+        ws_ep.cell(row=row, column=2, value=ep.returnType)
+        row += 2
+
+        # 입력 파라미터
+        query_params = [p for p in ep.params if p.annotation != "RequestBody"]
+        if query_params:
+            ws_ep.cell(row=row, column=1, value="입력 파라미터")
+            ws_ep.cell(row=row, column=1).font = Font(bold=True)
+            row += 1
+            param_headers = ["파라미터명", "타입", "어노테이션", "필수"]
+            for ci, h in enumerate(param_headers, 1):
+                ws_ep.cell(row=row, column=ci, value=h)
+            _style_header_row(ws_ep, row, len(param_headers))
+            row += 1
+            for p in query_params:
+                ws_ep.cell(row=row, column=1, value=p.name)
+                ws_ep.cell(row=row, column=2, value=p.type)
+                ws_ep.cell(row=row, column=3, value=f"@{p.annotation}")
+                ws_ep.cell(row=row, column=4, value="Y" if p.required else "N")
+                _apply_border(ws_ep, row, len(param_headers))
+                row += 1
+            row += 1
+
+        # 요청 본문
+        if ep.requestFields:
+            ws_ep.cell(row=row, column=1, value="요청 본문")
+            ws_ep.cell(row=row, column=1).font = Font(bold=True)
+            row += 1
+            field_headers = ["필드명", "타입", "설명"]
+            for ci, h in enumerate(field_headers, 1):
+                ws_ep.cell(row=row, column=ci, value=h)
+            _style_header_row(ws_ep, row, len(field_headers))
+            row += 1
+            for f in ep.requestFields:
+                ws_ep.cell(row=row, column=1, value=f.name)
+                ws_ep.cell(row=row, column=2, value=f.type)
+                ws_ep.cell(row=row, column=3, value=f.comment)
+                _apply_border(ws_ep, row, len(field_headers))
+                row += 1
+            row += 1
+
+        # 응답
+        if ep.responseFields:
+            ws_ep.cell(row=row, column=1, value="응답")
+            ws_ep.cell(row=row, column=1).font = Font(bold=True)
+            row += 1
+            field_headers = ["필드명", "타입", "설명"]
+            for ci, h in enumerate(field_headers, 1):
+                ws_ep.cell(row=row, column=ci, value=h)
+            _style_header_row(ws_ep, row, len(field_headers))
+            row += 1
+            for f in ep.responseFields:
+                ws_ep.cell(row=row, column=1, value=f.name)
+                ws_ep.cell(row=row, column=2, value=f.type)
+                ws_ep.cell(row=row, column=3, value=f.comment)
+                _apply_border(ws_ep, row, len(field_headers))
+                row += 1
+
+        _auto_width(ws_ep)
+
     wb.save(output)
