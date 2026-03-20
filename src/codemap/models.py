@@ -10,6 +10,7 @@ class Column(BaseModel):
     type: str
     pk: bool = False
     nullable: bool = True
+    comment: str = ""
 
 
 class ForeignKey(BaseModel):
@@ -25,6 +26,7 @@ class Index(BaseModel):
 
 class Table(BaseModel):
     name: str
+    comment: str = ""
     columns: list[Column] = Field(default_factory=list)
     foreignKeys: list[ForeignKey] = Field(default_factory=list)
     indexes: list[Index] = Field(default_factory=list)
@@ -34,12 +36,21 @@ class DatabaseSchema(BaseModel):
     tables: list[Table] = Field(default_factory=list)
 
 
+class Param(BaseModel):
+    name: str
+    type: str
+    annotation: str   # "RequestParam" | "RequestBody" | "PathVariable"
+    required: bool = True
+
+
 class Endpoint(BaseModel):
     method: str
     path: str
     controller: str
     service: str
     calls: list[str] = Field(default_factory=list)
+    params: list[Param] = Field(default_factory=list)
+    returnType: str = ""
 
 
 class ApiSchema(BaseModel):

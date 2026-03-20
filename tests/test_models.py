@@ -7,6 +7,7 @@ from codemap.models import (
     ForeignKey,
     Index,
     Endpoint,
+    Param,
     Module,
     ExternalCall,
     Component,
@@ -110,3 +111,40 @@ def test_external_call_serialization():
     assert "from" in dumped
     assert dumped["from"] == "GdalService.convert"
     assert "source" not in dumped
+
+
+def test_column_comment():
+    col = Column(name="id", type="BIGINT", pk=True, nullable=False, comment="고유번호")
+    assert col.comment == "고유번호"
+
+
+def test_column_comment_default():
+    col = Column(name="id", type="BIGINT")
+    assert col.comment == ""
+
+
+def test_table_comment():
+    table = Table(name="users", comment="사용자 관리")
+    assert table.comment == "사용자 관리"
+
+
+def test_endpoint_params():
+    ep = Endpoint(
+        method="GET",
+        path="/api/devices",
+        controller="DeviceApiController",
+        service="DeviceService",
+        params=[
+            Param(name="deviceType", type="String", annotation="RequestParam", required=False),
+        ],
+        returnType="ApiResponse<List<Device>>",
+    )
+    assert len(ep.params) == 1
+    assert ep.params[0].annotation == "RequestParam"
+    assert ep.returnType == "ApiResponse<List<Device>>"
+
+
+def test_endpoint_params_default():
+    ep = Endpoint(method="GET", path="/api/test", controller="C", service="S")
+    assert ep.params == []
+    assert ep.returnType == ""
