@@ -22,7 +22,10 @@ class BackendScanConfig(BaseModel):
 
 
 class FrontendScanConfig(BaseModel):
-    paths: list[str] = Field(default_factory=lambda: ["src/frontend/**/*.{ts,tsx}"])
+    paths: list[str] = Field(default_factory=lambda: [
+        "src/frontend/**/*.ts",
+        "src/frontend/**/*.tsx",
+    ])
     framework: str = "react"
 
 

@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import re
+
 from codemap.models import (
     ApiSchema,
     DatabaseSchema,
     DependencySchema,
     ScanResult,
 )
+
+
+def _safe_id(value: str) -> str:
+    """Sanitize a string to a valid Mermaid node ID (alphanumeric + underscore only)."""
+    safe = re.sub(r"[^0-9A-Za-z_]", "_", value)
+    if safe and safe[0].isdigit():
+        safe = f"n_{safe}"
+    return safe or "node"
 
 
 def render_erd(db: DatabaseSchema) -> str:
@@ -125,13 +135,13 @@ def render_architecture(scan: ScanResult) -> str:
     if backend_items:
         lines.append("    subgraph Backend")
         for item in sorted(controllers):
-            safe = item.replace(".", "_")
+            safe = _safe_id(item)
             lines.append(f"        {safe}[{item}]")
         for item in sorted(services):
-            safe = item.replace(".", "_")
+            safe = _safe_id(item)
             lines.append(f"        {safe}[{item}]")
         for item in sorted(repositories):
-            safe = item.replace(".", "_")
+            safe = _safe_id(item)
             lines.append(f"        {safe}[{item}]")
         lines.append("    end")
 
@@ -139,31 +149,33 @@ def render_architecture(scan: ScanResult) -> str:
     if tables:
         lines.append("    subgraph Database")
         for t in sorted(tables):
-            lines.append(f"        {t}[({t})]")
+            safe = _safe_id(t)
+            lines.append(f"        {safe}[({t})]")
         lines.append("    end")
 
     # External subgraph
     if externals:
         lines.append("    subgraph External")
         for ext in sorted(externals):
-            safe = ext.replace(".", "_").replace("-", "_")
-            lines.append(f"        {safe}[{ext}]")
+            safe = _safe_id(ext)
+            lines.append(f"        {safe}[\"{ext}\"]")
         lines.append("    end")
 
     # Draw edges: controller -> service
     for endpoint in scan.api.endpoints:
-        ctrl_safe = endpoint.controller.replace(".", "_")
-        svc_safe = endpoint.service.replace(".", "_")
-        lines.append(f"    {ctrl_safe} --> {svc_safe}")
-        for call in endpoint.calls:
-            call_safe = call.replace(".", "_")
-            lines.append(f"    {svc_safe} --> {call_safe}")
+        ctrl_safe = _safe_id(endpoint.controller)
+        if endpoint.service:
+            svc_safe = _safe_id(endpoint.service)
+            lines.append(f"    {ctrl_safe} --> {svc_safe}")
+            for call in endpoint.calls:
+                call_safe = _safe_id(call)
+                lines.append(f"    {svc_safe} --> {call_safe}")
 
     # Draw edges: module dependencies
     for module in scan.dependencies.modules:
-        src_safe = module.name.replace(".", "_")
+        src_safe = _safe_id(module.name)
         for dep in module.dependsOn:
-            dep_safe = dep.replace(".", "_")
+            dep_safe = _safe_id(dep)
             lines.append(f"    {src_safe} --> {dep_safe}")
 
     return "\n".join(lines)
@@ -181,14 +193,14 @@ def render_component(deps: DependencySchema) -> str:
             all_names.add(dep)
 
     for name in sorted(all_names):
-        safe = name.replace(".", "_")
+        safe = _safe_id(name)
         lines.append(f"    {safe}[{name}]")
 
     # Draw dependency edges
     for module in deps.modules:
-        src_safe = module.name.replace(".", "_")
+        src_safe = _safe_id(module.name)
         for dep in module.dependsOn:
-            dep_safe = dep.replace(".", "_")
+            dep_safe = _safe_id(dep)
             lines.append(f"    {src_safe} --> {dep_safe}")
 
     return "\n".join(lines)

@@ -237,7 +237,9 @@ def export_cmd(ctx, format_type, from_file, doc_type, template, output):
 
 
 def _resolve_template(template_name: str) -> Path | None:
-    """Resolve template CSS path."""
+    """Resolve template CSS path. Rejects path separators to prevent traversal."""
+    if Path(template_name).name != template_name or any(sep in template_name for sep in ("/", "\\")):
+        raise click.BadParameter(f"template must be a simple name without path separators: {template_name}")
     # Project-level
     project_css = Path(".codemap") / "templates" / f"{template_name}.css"
     if project_css.exists():

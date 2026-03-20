@@ -63,12 +63,10 @@ def export_table_spec_xlsx(scan: ScanResult, output: Path) -> None:
     _auto_width(ws_index)
 
     # -- Per-table sheets --
-    fk_map: dict[str, str] = {}
     for table in scan.database.tables:
-        for fk in table.foreignKeys:
-            fk_map[fk.column] = fk.references
+        # Build FK map per table to avoid cross-table contamination
+        fk_map: dict[str, str] = {fk.column: fk.references for fk in table.foreignKeys}
 
-    for table in scan.database.tables:
         ws = wb.create_sheet(title=table.name)
 
         col_headers = ["No", "컬럼명", "타입", "PK", "FK", "Nullable", "설명"]
@@ -78,9 +76,7 @@ def export_table_spec_xlsx(scan: ScanResult, output: Path) -> None:
 
         row = 2
         for ci, col in enumerate(table.columns, 1):
-            fk_ref = ""
-            if col.name in fk_map:
-                fk_ref = fk_map[col.name]
+            fk_ref = fk_map.get(col.name, "")
             ws.cell(row=row, column=1, value=ci)
             ws.cell(row=row, column=2, value=col.name)
             ws.cell(row=row, column=3, value=col.type)
