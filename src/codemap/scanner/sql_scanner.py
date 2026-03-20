@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import sqlglot
@@ -11,14 +12,47 @@ from codemap.models import Table, Column, ForeignKey, Index
 
 logger = logging.getLogger(__name__)
 
+# COMMENT ON TABLE [schema.]table_name IS 'comment'; (handles escaped '' quotes)
+_COMMENT_TABLE_RE = re.compile(
+    r"comment\s+on\s+table\s+(?:\w+\.)?(\w+)\s+is\s+'((?:[^']|'')*)'",
+    re.IGNORECASE,
+)
+
+# COMMENT ON COLUMN [schema.]table_name.column_name IS 'comment';
+_COMMENT_COLUMN_RE = re.compile(
+    r"comment\s+on\s+column\s+(?:\w+\.)?(\w+)\.(\w+)\s+is\s+'((?:[^']|'')*)'",
+    re.IGNORECASE,
+)
+
+
+def _apply_comments(tables: list[Table], sql_texts: list[str]) -> None:
+    table_comments: dict[str, str] = {}
+    column_comments: dict[tuple[str, str], str] = {}
+
+    for sql_text in sql_texts:
+        for m in _COMMENT_TABLE_RE.finditer(sql_text):
+            table_comments[m.group(1)] = m.group(2).replace("''", "'")
+        for m in _COMMENT_COLUMN_RE.finditer(sql_text):
+            column_comments[(m.group(1), m.group(2))] = m.group(3).replace("''", "'")
+
+    for table in tables:
+        if table.name in table_comments:
+            table.comment = table_comments[table.name]
+        for col in table.columns:
+            key = (table.name, col.name)
+            if key in column_comments:
+                col.comment = column_comments[key]
+
 
 def scan_sql(sql_files: list[Path]) -> list[Table]:
     tables: list[Table] = []
     indexes: dict[str, list[Index]] = {}
+    raw_texts: list[str] = []
 
     for sql_file in sql_files:
         try:
             sql_text = sql_file.read_text(encoding="utf-8")
+            raw_texts.append(sql_text)
             statements = sqlglot.parse(sql_text)
         except Exception as e:
             logger.warning(f"Failed to parse {sql_file}: {e}")
@@ -42,6 +76,9 @@ def scan_sql(sql_files: list[Path]) -> list[Table]:
     for table in tables:
         if table.name in indexes:
             table.indexes.extend(indexes[table.name])
+
+    # Apply COMMENT ON statements
+    _apply_comments(tables, raw_texts)
 
     return tables
 
