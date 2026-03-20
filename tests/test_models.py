@@ -8,10 +8,12 @@ from codemap.models import (
     Index,
     Endpoint,
     Param,
+    JavaField,
     Module,
     ExternalCall,
     Component,
     ApiCall,
+    ApiSchema,
 )
 
 
@@ -148,3 +150,56 @@ def test_endpoint_params_default():
     ep = Endpoint(method="GET", path="/api/test", controller="C", service="S")
     assert ep.params == []
     assert ep.returnType == ""
+
+
+def test_java_field():
+    field = JavaField(name="deviceId", type="Integer", comment="고유번호")
+    assert field.name == "deviceId"
+    assert field.type == "Integer"
+    assert field.comment == "고유번호"
+
+
+def test_java_field_default_comment():
+    field = JavaField(name="id", type="Long")
+    assert field.comment == ""
+
+
+def test_endpoint_request_fields():
+    ep = Endpoint(
+        method="POST", path="/api/users", controller="C", service="S",
+        requestFields=[
+            JavaField(name="email", type="String", comment="이메일"),
+        ],
+    )
+    assert len(ep.requestFields) == 1
+    assert ep.requestFields[0].comment == "이메일"
+
+
+def test_endpoint_response_fields():
+    ep = Endpoint(
+        method="GET", path="/api/users", controller="C", service="S",
+        responseFields=[
+            JavaField(name="deviceId", type="Integer", comment="고유번호"),
+            JavaField(name="deviceName", type="String", comment="장비명"),
+        ],
+    )
+    assert len(ep.responseFields) == 2
+
+
+def test_endpoint_fields_default():
+    ep = Endpoint(method="GET", path="/api/test", controller="C", service="S")
+    assert ep.requestFields == []
+    assert ep.responseFields == []
+
+
+def test_api_schema_class_fields():
+    schema = ApiSchema(
+        classFields={"User": [JavaField(name="id", type="Long", comment="고유번호")]},
+    )
+    assert "User" in schema.classFields
+    assert schema.classFields["User"][0].name == "id"
+
+
+def test_api_schema_class_fields_default():
+    schema = ApiSchema()
+    assert schema.classFields == {}

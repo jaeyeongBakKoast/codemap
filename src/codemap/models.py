@@ -43,6 +43,13 @@ class Param(BaseModel):
     required: bool = True
 
 
+class JavaField(BaseModel):
+    """Java 클래스의 필드 정보 (Entity/DTO 멤버 변수)"""
+    name: str
+    type: str
+    comment: str = ""
+
+
 class Endpoint(BaseModel):
     method: str
     path: str
@@ -51,10 +58,13 @@ class Endpoint(BaseModel):
     calls: list[str] = Field(default_factory=list)
     params: list[Param] = Field(default_factory=list)
     returnType: str = ""
+    requestFields: list[JavaField] = Field(default_factory=list)
+    responseFields: list[JavaField] = Field(default_factory=list)
 
 
 class ApiSchema(BaseModel):
     endpoints: list[Endpoint] = Field(default_factory=list)
+    classFields: dict[str, list[JavaField]] = Field(default_factory=dict)
 
 
 class Module(BaseModel):
