@@ -5,7 +5,7 @@ import logging
 import re
 from pathlib import Path
 
-from codemap.models import Endpoint, Module
+from codemap.models import Endpoint, Module, Param
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,13 @@ _METHOD_MAPPING_RE = re.compile(
 _CLASS_NAME_RE = re.compile(r"\bclass\s+(\w+)")
 # Match constructor parameters: TypeName varName (,|))
 _CONSTRUCTOR_PARAM_RE = re.compile(r"\b([A-Z]\w+)\s+\w+\s*(?:,|\))")
+
+_PARAM_ANNOTATION_RE = re.compile(
+    r"@(RequestParam|RequestBody|PathVariable)"
+    r"(?:\(([^)]*)\))?\s+"
+    r"(\w+(?:<[^>]+>)?)\s+(\w+)"
+)
+_REQUIRED_FALSE_RE = re.compile(r"required\s*=\s*false", re.IGNORECASE)
 
 
 _LAYER_MAP = {
@@ -94,7 +101,7 @@ def scan_java(java_files: list[Path]) -> tuple[list[Endpoint], list[Module]]:
 
         base_path = info.get("base_path", "")
 
-        for http_method, method_path in info.get("endpoint_stubs", []):
+        for http_method, method_path, params, return_type in info.get("endpoint_stubs", []):
             full_path = _combine_paths(base_path, method_path)
             endpoints.append(
                 Endpoint(
@@ -102,6 +109,8 @@ def scan_java(java_files: list[Path]) -> tuple[list[Endpoint], list[Module]]:
                     path=full_path,
                     controller=cls_name,
                     service=service_name,
+                    params=params,
+                    returnType=return_type,
                 )
             )
 
@@ -180,15 +189,52 @@ def _extract_constructor_deps(source: str, class_name: str) -> list[str]:
     return deps
 
 
-def _extract_endpoint_stubs(source: str) -> list[tuple[str, str]]:
-    """Extract (http_method, path) pairs from method-level mapping annotations."""
+def _extract_endpoint_stubs(source: str) -> list[tuple[str, str, list[Param], str]]:
+    """Extract (http_method, path, params, return_type) tuples from method-level mapping annotations."""
     stubs = []
-    for match in _METHOD_MAPPING_RE.finditer(source):
+    lines = source.split("\n")
+    for i, line in enumerate(lines):
+        match = _METHOD_MAPPING_RE.search(line)
+        if not match:
+            continue
         http_verb = match.group(1)
         method_path = match.group(2) or ""
         http_method = _HTTP_METHOD_MAP.get(http_verb, http_verb.upper())
-        stubs.append((http_method, method_path))
+        method_sig = _find_method_signature(lines, i)
+        params = _extract_method_params(method_sig)
+        return_type = _extract_return_type(method_sig)
+        stubs.append((http_method, method_path, params, return_type))
     return stubs
+
+
+def _find_method_signature(lines: list[str], annotation_line: int) -> str:
+    sig_parts = []
+    # Start from the line after the annotation to skip path-template braces like "/{id}"
+    start = annotation_line + 1
+    for j in range(start, min(start + 10, len(lines))):
+        sig_parts.append(lines[j])
+        if "{" in lines[j]:
+            break
+    return " ".join(sig_parts)
+
+
+def _extract_method_params(method_sig: str) -> list[Param]:
+    params = []
+    for m in _PARAM_ANNOTATION_RE.finditer(method_sig):
+        annotation = m.group(1)
+        annotation_args = m.group(2) or ""
+        param_type = m.group(3)
+        param_name = m.group(4)
+        required = not bool(_REQUIRED_FALSE_RE.search(annotation_args))
+        params.append(Param(name=param_name, type=param_type, annotation=annotation, required=required))
+    return params
+
+
+def _extract_return_type(method_sig: str) -> str:
+    m = re.search(r"public\s+([\w<>,\s\?]+?)\s+\w+\s*\(", method_sig)
+    if m:
+        return m.group(1).strip()
+    return ""
 
 
 def _combine_paths(base: str, method: str) -> str:

@@ -1,6 +1,7 @@
 package com.example.user;
 
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
@@ -13,17 +14,17 @@ public class UserController {
     }
 
     @GetMapping
-    public List<User> getUsers() {
+    public ApiResponse<List<User>> getUsers(@RequestParam(required = false) String status) {
         return userService.findAll();
     }
 
     @PostMapping
-    public User createUser(@RequestBody User user) {
+    public ApiResponse<User> createUser(@RequestBody User user) {
         return userService.create(user);
     }
 
     @GetMapping("/{id}")
-    public User getUser(@PathVariable Long id) {
+    public ApiResponse<User> getUser(@PathVariable Long id) {
         return userService.findById(id);
     }
 }
