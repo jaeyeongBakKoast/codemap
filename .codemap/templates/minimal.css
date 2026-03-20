@@ -1,0 +1,11 @@
+body {
+    font-family: 'Noto Sans KR', sans-serif;
+    margin: 2cm;
+    color: #333;
+}
+h1 { color: #2B579A; border-bottom: 2px solid #2B579A; padding-bottom: 0.3em; }
+h2 { color: #2B579A; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+th { background-color: #4472C4; color: white; padding: 8px; text-align: left; }
+td { border: 1px solid #ddd; padding: 8px; }
+tr:nth-child(even) { background-color: #f2f2f2; }
