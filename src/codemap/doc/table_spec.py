@@ -11,6 +11,8 @@ def generate_table_spec(db: DatabaseSchema) -> str:
             fk_map[fk.column] = fk.references
 
         lines.append(f"## {table.name}")
+        if table.comment:
+            lines.append(f"\n{table.comment}")
         lines.append("")
         lines.append("### 컬럼")
         lines.append("")
@@ -21,7 +23,7 @@ def generate_table_spec(db: DatabaseSchema) -> str:
             pk = "O" if col.pk else ""
             fk = fk_map.get(col.name, "")
             nullable = "O" if col.nullable else "X"
-            lines.append(f"| {col.name} | {col.type} | {pk} | {fk} | {nullable} | |")
+            lines.append(f"| {col.name} | {col.type} | {pk} | {fk} | {nullable} | {col.comment} |")
 
         lines.append("")
 

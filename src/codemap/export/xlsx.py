@@ -57,7 +57,7 @@ def export_table_spec_xlsx(scan: ScanResult, output: Path) -> None:
     for ti, table in enumerate(scan.database.tables, 1):
         ws_index.cell(row=ti + 1, column=1, value=ti)
         ws_index.cell(row=ti + 1, column=2, value=table.name)
-        ws_index.cell(row=ti + 1, column=3, value="")
+        ws_index.cell(row=ti + 1, column=3, value=table.comment)
         _apply_border(ws_index, ti + 1, len(index_headers))
 
     _auto_width(ws_index)
@@ -83,7 +83,7 @@ def export_table_spec_xlsx(scan: ScanResult, output: Path) -> None:
             ws.cell(row=row, column=4, value="Y" if col.pk else "")
             ws.cell(row=row, column=5, value=fk_ref)
             ws.cell(row=row, column=6, value="Y" if col.nullable else "N")
-            ws.cell(row=row, column=7, value="")
+            ws.cell(row=row, column=7, value=col.comment)
             _apply_border(ws, row, len(col_headers))
             row += 1
 
@@ -113,19 +113,22 @@ def export_api_spec_xlsx(scan: ScanResult, output: Path) -> None:
     ws = wb.active
     ws.title = "엔드포인트 목록"
 
-    headers = ["No", "메서드", "경로", "컨트롤러", "서비스", "호출"]
+    headers = ["No", "메서드", "경로", "컨트롤러", "서비스", "파라미터", "반환 타입", "호출"]
     for ci, h in enumerate(headers, 1):
         ws.cell(row=1, column=ci, value=h)
     _style_header_row(ws, 1, len(headers))
 
     for ei, ep in enumerate(scan.api.endpoints, 1):
         row = ei + 1
+        params_str = ", ".join(f"@{p.annotation} {p.type} {p.name}" for p in ep.params)
         ws.cell(row=row, column=1, value=ei)
         ws.cell(row=row, column=2, value=ep.method)
         ws.cell(row=row, column=3, value=ep.path)
         ws.cell(row=row, column=4, value=ep.controller)
         ws.cell(row=row, column=5, value=ep.service)
-        ws.cell(row=row, column=6, value=", ".join(ep.calls))
+        ws.cell(row=row, column=6, value=params_str)
+        ws.cell(row=row, column=7, value=ep.returnType)
+        ws.cell(row=row, column=8, value=", ".join(ep.calls))
         _apply_border(ws, row, len(headers))
 
     _auto_width(ws)

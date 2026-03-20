@@ -44,3 +44,17 @@ def test_table_spec_index():
 def test_table_spec_empty():
     md = generate_table_spec(DatabaseSchema())
     assert "# 테이블 정의서" in md
+
+
+def test_table_spec_column_comment():
+    from codemap.models import DatabaseSchema, Table, Column
+    db = DatabaseSchema(tables=[
+        Table(name="users", comment="사용자 관리", columns=[
+            Column(name="id", type="BIGINT", pk=True, nullable=False, comment="고유번호"),
+            Column(name="email", type="VARCHAR(255)", nullable=False, comment="이메일 주소"),
+        ]),
+    ])
+    md = generate_table_spec(db)
+    assert "고유번호" in md
+    assert "이메일 주소" in md
+    assert "사용자 관리" in md
