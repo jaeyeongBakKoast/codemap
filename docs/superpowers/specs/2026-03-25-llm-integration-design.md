@@ -88,14 +88,17 @@ class AiClient:
         return not self._disabled
 ```
 
-- 타임아웃: 120초 (대형 프로젝트 대비)
+- 타임아웃: 60초
 - 요청 body에 `"stream": false` 명시 (Ollama 기본이 streaming이므로)
+- **진행 상황 표시** (`--quiet`가 아닐 때):
+  - 각 LLM 호출 시작 시 stderr로 진행 로그 출력: `AI: 테이블 'user' 설명 생성 중... (3/15)`
+  - 완료 시: `AI: 테이블 설명 생성 완료 (15개, 42.3초)`
+  - `--verbose` 모드에서는 개별 응답 시간도 표시
 - **에러 처리 전략**:
   - `ConnectionRefusedError` → 즉시 `_disabled = True`
   - `TimeoutError` → 1회 재시도 후 실패 시 `_disabled = True`
   - `HTTP 5xx` → 1회 재시도 후 실패 시 `_disabled = True`
   - JSON 파싱 실패 → warning 후 해당 항목만 스킵 (클라이언트 비활성화하지 않음)
-- `--verbose` 모드에서 각 LLM 호출마다 INFO 로그 (대상 항목명, 응답 시간)
 
 ## 스캔 결과 보강 (`enrich_scan.py`)
 
