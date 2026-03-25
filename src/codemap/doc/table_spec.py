@@ -1,8 +1,20 @@
+from __future__ import annotations
+
 from codemap.models import DatabaseSchema
 
 
-def generate_table_spec(db: DatabaseSchema) -> str:
+def generate_table_spec(db: DatabaseSchema, ai_client=None) -> str:
     lines: list[str] = ["# 테이블 정의서", ""]
+
+    # AI: 관계 요약
+    if ai_client is not None and ai_client.available:
+        from codemap.ai.enrich_doc import generate_table_relationships
+        rel = generate_table_relationships(db, ai_client)
+        if rel:
+            lines.append("## 관계 요약")
+            lines.append("")
+            lines.append(rel)
+            lines.append("")
 
     # Build FK lookup per table
     for table in db.tables:

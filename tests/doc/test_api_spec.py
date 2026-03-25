@@ -104,3 +104,31 @@ def test_api_spec_summary_table():
     md = generate_api_spec(api)
     assert "# API 명세서" in md
     assert "| 메서드 |" in md or "메서드" in md
+
+
+from unittest.mock import MagicMock
+
+
+def test_api_spec_with_ai_business_logic():
+    from codemap.doc.api_spec import generate_api_spec
+    from codemap.models import ApiSchema, Endpoint
+    api = ApiSchema(endpoints=[
+        Endpoint(method="GET", path="/api/users",
+                 controller="UserController", service="UserService"),
+    ])
+    mock_client = MagicMock()
+    mock_client.available = True
+    mock_client.chat.return_value = "사용자 목록을 조회하여 반환한다."
+    md = generate_api_spec(api, ai_client=mock_client)
+    assert "비즈니스 로직" in md
+
+
+def test_api_spec_without_ai_unchanged():
+    from codemap.doc.api_spec import generate_api_spec
+    from codemap.models import ApiSchema, Endpoint
+    api = ApiSchema(endpoints=[
+        Endpoint(method="GET", path="/api/users",
+                 controller="UserController", service="UserService"),
+    ])
+    md = generate_api_spec(api)
+    assert "비즈니스 로직" not in md

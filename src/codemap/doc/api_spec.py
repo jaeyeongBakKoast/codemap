@@ -1,7 +1,7 @@
 from codemap.models import ApiSchema, Endpoint
 
 
-def generate_api_spec(api: ApiSchema) -> str:
+def generate_api_spec(api: ApiSchema, ai_client=None) -> str:
     lines: list[str] = ["# API 명세서", ""]
 
     # 요약 테이블
@@ -64,6 +64,16 @@ def generate_api_spec(api: ApiSchema) -> str:
             for f in ep.responseFields:
                 lines.append(f"| {f.name} | {f.type} | {f.comment} |")
             lines.append("")
+
+        # AI: 비즈니스 로직
+        if ai_client is not None and ai_client.available:
+            from codemap.ai.enrich_doc import generate_business_logic
+            logic = generate_business_logic(ep, ai_client)
+            if logic:
+                lines.append("### 비즈니스 로직")
+                lines.append("")
+                lines.append(logic)
+                lines.append("")
 
         lines.append("---")
         lines.append("")
