@@ -1,6 +1,7 @@
 # src/codemap/config.py
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -58,8 +59,8 @@ class ExportConfig(BaseModel):
 
 class AiConfig(BaseModel):
     enabled: bool = True
-    base_url: str = "http://183.101.208.30:63001"
-    model: str = "qwen3:30b-a3b-instruct-2507-fp16"
+    base_url: str = Field(default_factory=lambda: os.getenv("CODEMAP_AI_URL", ""))
+    model: str = Field(default_factory=lambda: os.getenv("CODEMAP_AI_MODEL", ""))
     language: str = "ko"
 
 

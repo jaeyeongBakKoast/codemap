@@ -38,12 +38,24 @@ def test_load_config_from_fixture():
     assert cfg.project.name == "test-project"
 
 
-def test_default_config_has_ai():
-    cfg = DEFAULT_CONFIG
-    assert cfg.ai.enabled is True
-    assert cfg.ai.base_url == "http://183.101.208.30:63001"
-    assert cfg.ai.model == "qwen3:30b-a3b-instruct-2507-fp16"
-    assert cfg.ai.language == "ko"
+def test_default_config_has_ai(monkeypatch):
+    monkeypatch.setenv("CODEMAP_AI_URL", "http://test:11434")
+    monkeypatch.setenv("CODEMAP_AI_MODEL", "test-model")
+    from codemap.config import AiConfig
+    cfg = AiConfig()
+    assert cfg.enabled is True
+    assert cfg.base_url == "http://test:11434"
+    assert cfg.model == "test-model"
+    assert cfg.language == "ko"
+
+
+def test_default_config_ai_empty_without_env(monkeypatch):
+    monkeypatch.delenv("CODEMAP_AI_URL", raising=False)
+    monkeypatch.delenv("CODEMAP_AI_MODEL", raising=False)
+    from codemap.config import AiConfig
+    cfg = AiConfig()
+    assert cfg.base_url == ""
+    assert cfg.model == ""
 
 
 def test_load_config_with_ai_override(tmp_path):
