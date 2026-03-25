@@ -34,8 +34,9 @@ def _write_output(content: str, output: str | None, quiet: bool = False, label: 
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.option("-q", "--quiet", is_flag=True, help="Quiet output")
 @click.option("--debug", is_flag=True, help="Debug output")
+@click.option("--no-ai", is_flag=True, help="Disable AI enrichment")
 @click.pass_context
-def main(ctx, verbose, quiet, debug):
+def main(ctx, verbose, quiet, debug, no_ai):
     ctx.ensure_object(dict)
     level = logging.WARNING
     if verbose:
@@ -47,6 +48,19 @@ def main(ctx, verbose, quiet, debug):
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
+    ctx.obj["no_ai"] = no_ai
+
+
+def _create_ai_client(ctx, config):
+    """Create AiClient if AI is enabled, else return None."""
+    if ctx.obj.get("no_ai"):
+        return None
+    if not config.ai.enabled:
+        return None
+    if not config.ai.base_url:
+        return None
+    from codemap.ai.client import AiClient
+    return AiClient(config.ai.base_url, config.ai.model, config.ai.language)
 
 
 @main.command()
@@ -63,6 +77,12 @@ def scan(ctx, path, target, output):
     targets = set(target.split(","))
 
     result = run_scan(project_path, config, targets)
+
+    # AI enrichment
+    ai_client = _create_ai_client(ctx, config)
+    if ai_client:
+        from codemap.ai.enrich_scan import enrich_scan
+        enrich_scan(result, ai_client)
 
     json_str = json.dumps(result.model_dump(mode="json", by_alias=True), indent=2, ensure_ascii=False)
     if output:
@@ -149,31 +169,36 @@ def doc(ctx, doc_type, from_file, output):
     scan_result = _load_scan_result(Path(from_file))
     quiet = ctx.obj.get("quiet", False)
 
+    ai_client = None
+    if not ctx.obj.get("no_ai"):
+        config = load_config(Path("."))
+        ai_client = _create_ai_client(ctx, config)
+
     if doc_type == "all":
         out_dir = Path(output) if output else Path(".")
         out_dir.mkdir(parents=True, exist_ok=True)
         for dt in ["table-spec", "api-spec", "overview"]:
-            content = _generate_doc(scan_result, dt)
+            content = _generate_doc(scan_result, dt, ai_client)
             out_file = out_dir / f"{dt}.md"
             out_file.write_text(content, encoding="utf-8")
         if not quiet:
             click.echo(f"Documents saved to {out_dir}", err=True)
     else:
-        content = _generate_doc(scan_result, doc_type)
+        content = _generate_doc(scan_result, doc_type, ai_client)
         _write_output(content, output, quiet, "Document")
 
 
-def _generate_doc(scan: ScanResult, doc_type: str) -> str:
+def _generate_doc(scan: ScanResult, doc_type: str, ai_client=None) -> str:
     """Generate a single document type."""
     if doc_type == "table-spec":
         from codemap.doc.table_spec import generate_table_spec
-        return generate_table_spec(scan.database)
+        return generate_table_spec(scan.database, ai_client=ai_client)
     elif doc_type == "api-spec":
         from codemap.doc.api_spec import generate_api_spec
-        return generate_api_spec(scan.api)
+        return generate_api_spec(scan.api, ai_client=ai_client)
     elif doc_type == "overview":
         from codemap.doc.overview import generate_overview
-        return generate_overview(scan)
+        return generate_overview(scan, ai_client=ai_client)
     return ""
 
 
@@ -193,6 +218,12 @@ def export_cmd(ctx, format_type, from_file, doc_type, template, output):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     quiet = ctx.obj.get("quiet", False)
 
+    # Create AI client for auto-chain paths (JSON → doc → export)
+    ai_client = None
+    if from_path.suffix == ".json" and not ctx.obj.get("no_ai"):
+        config = load_config(Path("."))
+        ai_client = _create_ai_client(ctx, config)
+
     if format_type == "xlsx":
         scan_result = _load_scan_result(from_path)
         from codemap.export.xlsx import export_table_spec_xlsx, export_api_spec_xlsx
@@ -210,7 +241,7 @@ def export_cmd(ctx, format_type, from_file, doc_type, template, output):
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_dir = Path(tmp)
                 for dt in ["table-spec", "api-spec", "overview"]:
-                    content = _generate_doc(scan_result, dt)
+                    content = _generate_doc(scan_result, dt, ai_client)
                     (tmp_dir / f"{dt}.md").write_text(content, encoding="utf-8")
                 css_path = _resolve_template(template)
                 export_pdf(tmp_dir, out_path, css_path=css_path)
@@ -226,7 +257,7 @@ def export_cmd(ctx, format_type, from_file, doc_type, template, output):
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_dir = Path(tmp)
                 for dt in ["table-spec", "api-spec", "overview"]:
-                    content = _generate_doc(scan_result, dt)
+                    content = _generate_doc(scan_result, dt, ai_client)
                     (tmp_dir / f"{dt}.md").write_text(content, encoding="utf-8")
                 export_docx(tmp_dir, out_path)
         else:
@@ -273,6 +304,13 @@ def generate(ctx, path, output, target, fmt, export_fmt):
 
     # 1. Scan
     result = run_scan(project_path, config, targets)
+
+    # 1.5 AI enrichment on scan result
+    ai_client = _create_ai_client(ctx, config)
+    if ai_client:
+        from codemap.ai.enrich_scan import enrich_scan
+        enrich_scan(result, ai_client)
+
     scan_file = out_dir / "scan.json"
     json_str = json.dumps(result.model_dump(mode="json", by_alias=True), indent=2, ensure_ascii=False)
     scan_file.write_text(json_str, encoding="utf-8")
@@ -287,11 +325,11 @@ def generate(ctx, path, output, target, fmt, export_fmt):
             content = _render_single(result, dt, render_fmt, [], "")
             (diagram_dir / f"{dt}{ext}").write_text(content, encoding="utf-8")
 
-    # 3. Generate docs
+    # 3. Generate docs (with AI)
     docs_dir = out_dir / "docs"
     docs_dir.mkdir(exist_ok=True)
     for dt in ["table-spec", "api-spec", "overview"]:
-        content = _generate_doc(result, dt)
+        content = _generate_doc(result, dt, ai_client)
         (docs_dir / f"{dt}.md").write_text(content, encoding="utf-8")
 
     # 4. Export if requested
