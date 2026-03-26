@@ -237,6 +237,8 @@ def _find_method_signature(lines: list[str], annotation_line: int) -> str:
 
 def _extract_method_params(method_sig: str) -> list[Param]:
     params = []
+    # First, collect annotated params
+    annotated_names: set[str] = set()
     for m in _PARAM_ANNOTATION_RE.finditer(method_sig):
         annotation = m.group(1)
         annotation_args = m.group(2) or ""
@@ -244,6 +246,33 @@ def _extract_method_params(method_sig: str) -> list[Param]:
         param_name = m.group(4)
         required = not bool(_REQUIRED_FALSE_RE.search(annotation_args))
         params.append(Param(name=param_name, type=param_type, annotation=annotation, required=required))
+        annotated_names.add(param_name)
+
+    # Then, find unannotated params (Spring implicit query binding)
+    # Extract the content inside the method parentheses
+    paren_match = re.search(r"\(([^)]*)\)", method_sig)
+    if paren_match:
+        params_str = paren_match.group(1)
+        # Split by comma, process each parameter
+        for part in params_str.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            # Skip if it has a known annotation
+            if re.search(r"@(RequestParam|RequestBody|PathVariable|PageableDefault|AuthenticationPrincipal|ModelAttribute)", part):
+                continue
+            # Skip framework types: Pageable, HttpServletRequest, HttpServletResponse, etc.
+            if re.search(r"\b(Pageable|HttpServlet|Principal|BindingResult|Model|RedirectAttributes|MultipartFile)\b", part):
+                continue
+            # Remove any remaining annotations
+            cleaned = re.sub(r"@\w+(?:\([^)]*\))?\s*", "", part).strip()
+            tokens = cleaned.split()
+            if len(tokens) >= 2:
+                param_type = tokens[-2]
+                param_name = tokens[-1]
+                if param_name not in annotated_names and param_type[0].isupper():
+                    params.append(Param(name=param_name, type=param_type, annotation="QueryParam", required=False))
+
     return params
 
 
@@ -269,19 +298,134 @@ def _parse_class_fields(source: str) -> list[JavaField]:
             cm = _LINE_COMMENT_RE.match(lines[i - 1])
             if cm:
                 comment = cm.group(1).strip()
+        if not comment:
+            comment = _auto_describe(field_name)
         fields.append(JavaField(name=field_name, type=field_type, comment=comment))
     return fields
 
 
-def _extract_inner_type(type_str: str) -> str:
-    """Unwrap generic wrappers like ApiResponse<List<User>> -> User."""
-    m = re.match(r"ApiResponse<(.+)>", type_str)
+# Common Java field name fragments → Korean descriptions
+_FIELD_NAME_KO: dict[str, str] = {
+    "id": "고유번호",
+    "name": "이름",
+    "email": "이메일",
+    "password": "비밀번호",
+    "phone": "전화번호",
+    "address": "주소",
+    "status": "상태",
+    "type": "유형",
+    "code": "코드",
+    "title": "제목",
+    "content": "내용",
+    "description": "설명",
+    "comment": "비고",
+    "remarks": "비고",
+    "path": "경로",
+    "url": "URL",
+    "key": "키",
+    "value": "값",
+    "count": "건수",
+    "total": "합계",
+    "amount": "금액",
+    "price": "가격",
+    "quantity": "수량",
+    "order": "순서",
+    "sort": "정렬",
+    "index": "인덱스",
+    "level": "레벨",
+    "depth": "깊이",
+    "size": "크기",
+    "width": "너비",
+    "height": "높이",
+    "length": "길이",
+    "weight": "무게",
+    "lat": "위도",
+    "latitude": "위도",
+    "lng": "경도",
+    "lon": "경도",
+    "longitude": "경도",
+    "date": "일시",
+    "time": "시간",
+    "year": "연도",
+    "month": "월",
+    "day": "일",
+    "hour": "시",
+    "minute": "분",
+    "second": "초",
+    "created": "생성",
+    "updated": "수정",
+    "modified": "수정",
+    "deleted": "삭제",
+    "start": "시작",
+    "end": "종료",
+    "begin": "시작",
+    "finish": "종료",
+    "active": "활성",
+    "enabled": "활성",
+    "disabled": "비활성",
+    "visible": "표시",
+    "hidden": "숨김",
+    "flag": "플래그",
+    "result": "결과",
+    "message": "메시지",
+    "error": "오류",
+    "version": "버전",
+    "port": "항구",
+    "username": "사용자명",
+    "user": "사용자",
+    "role": "역할",
+    "group": "그룹",
+    "parent": "부모",
+    "children": "자식",
+    "ancestor": "조상",
+    "file": "파일",
+    "image": "이미지",
+    "video": "영상",
+    "vessel": "선박",
+    "device": "장비",
+    "camera": "카메라",
+    "sensor": "센서",
+    "project": "프로젝트",
+    "session": "세션",
+    "token": "토큰",
+    "login": "로그인",
+    "last": "최근",
+    "full": "전체",
+    "is": "",
+    "has": "",
+    "can": "",
+}
+
+
+def _split_camel(name: str) -> list[str]:
+    """Split camelCase into lowercase words: 'createdAt' -> ['created', 'at']."""
+    parts = re.sub(r"([a-z])([A-Z])", r"\1_\2", name).lower().split("_")
+    return [p for p in parts if p]
+
+
+def _auto_describe(field_name: str) -> str:
+    """Generate Korean description from camelCase field name."""
+    words = _split_camel(field_name)
+    translated = []
+    for w in words:
+        ko = _FIELD_NAME_KO.get(w, "")
+        if ko:
+            translated.append(ko)
+
+            
+    return " ".join(translated) if translated else ""
+
+
+_COLLECTION_TYPES = {"List", "Set", "Collection"}
+_FRAMEWORK_WRAPPERS = {"ResponseEntity", "ApiResponse"}
+
+
+def _extract_generic_parts(type_str: str) -> tuple[str, str]:
+    """Extract outer type and inner type from a generic: 'Foo<Bar>' -> ('Foo', 'Bar')."""
+    m = re.match(r"(\w+)<(.+)>$", type_str.strip())
     if m:
-        type_str = m.group(1).strip()
-    m = re.match(r"(?:List|Set|Collection)<(.+)>", type_str)
-    if m:
-        type_str = m.group(1).strip()
-    return type_str
+        return m.group(1), m.group(2).strip()
+    return type_str, ""
 
 
 def _resolve_request_fields(ep: Endpoint, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
@@ -293,11 +437,65 @@ def _resolve_request_fields(ep: Endpoint, class_fields: dict[str, list[JavaField
 
 
 def _resolve_response_fields(ep: Endpoint, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
-    """Resolve return type to its class fields by unwrapping generics."""
+    """Resolve return type to its class fields by unwrapping generics.
+
+    For generic wrappers like ResultResponse<CampaignResponse>:
+    - If the outer type has fields in class_fields, include them (wrapper fields)
+    - Unwrap collections (List, Set) and framework wrappers (ResponseEntity)
+    - If the inner type has fields in class_fields, include them too
+    - Result: wrapper fields + inner type fields combined
+    """
     if not ep.returnType:
         return []
-    inner_type = _extract_inner_type(ep.returnType)
-    return class_fields.get(inner_type, [])
+
+    result_fields: list[JavaField] = []
+    type_str = ep.returnType
+
+    # Peel layers, collecting fields from known wrapper types
+    changed = True
+    while changed:
+        changed = False
+        outer, inner = _extract_generic_parts(type_str)
+
+        if not inner:
+            break
+
+        # Skip framework wrappers (ResponseEntity) — no useful fields
+        if outer in _FRAMEWORK_WRAPPERS:
+            type_str = inner
+            changed = True
+            continue
+
+        # Skip collection types (List, Set, Collection)
+        if outer in _COLLECTION_TYPES:
+            type_str = inner
+            changed = True
+            continue
+
+        # If outer type has fields in class_fields, it's a domain wrapper
+        if outer in class_fields:
+            result_fields.extend(class_fields[outer])
+            type_str = inner
+            changed = True
+            continue
+
+        # Unknown wrapper — stop unwrapping
+        break
+
+    # Unwrap any remaining collections
+    changed = True
+    while changed:
+        changed = False
+        outer, inner = _extract_generic_parts(type_str)
+        if outer in _COLLECTION_TYPES and inner:
+            type_str = inner
+            changed = True
+
+    # Add inner type fields
+    if type_str in class_fields:
+        result_fields.extend(class_fields[type_str])
+
+    return result_fields
 
 
 def _combine_paths(base: str, method: str) -> str:

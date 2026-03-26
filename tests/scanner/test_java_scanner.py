@@ -185,3 +185,43 @@ def test_scan_java_response_fields_unresolved():
     get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
     assert get_all is not None
     assert get_all.responseFields == []
+
+
+def test_scan_java_generic_wrapper_response_fields():
+    """ResultResponse<CampaignResponse> → wrapper + inner type 필드 모두 포함"""
+    endpoints, _, class_fields = scan_java([
+        FIXTURE_DIR / "CampaignController.java",
+        FIXTURE_DIR / "ResultResponse.java",
+        FIXTURE_DIR / "CampaignResponse.java",
+    ])
+    # ResultResponse, CampaignResponse 모두 class_fields에 있어야 함
+    assert "ResultResponse" in class_fields
+    assert "CampaignResponse" in class_fields
+
+    # GET /api/campaigns/{id} → ResultResponse<CampaignResponse>
+    get_one = next((ep for ep in endpoints if ep.path == "/api/campaigns/{id}"), None)
+    assert get_one is not None
+    field_names = [f.name for f in get_one.responseFields]
+    # ResultResponse 필드
+    assert "status" in field_names
+    assert "message" in field_names
+    # CampaignResponse 필드
+    assert "campaignId" in field_names
+    assert "campaignName" in field_names
+
+
+def test_scan_java_generic_wrapper_list_response_fields():
+    """ResultResponse<List<CampaignResponse>> → wrapper + inner type 필드 모두 포함"""
+    endpoints, _, class_fields = scan_java([
+        FIXTURE_DIR / "CampaignController.java",
+        FIXTURE_DIR / "ResultResponse.java",
+        FIXTURE_DIR / "CampaignResponse.java",
+    ])
+    get_all = next((ep for ep in endpoints if ep.path == "/api/campaigns"), None)
+    assert get_all is not None
+    field_names = [f.name for f in get_all.responseFields]
+    # ResultResponse 필드
+    assert "status" in field_names
+    assert "message" in field_names
+    # CampaignResponse 필드
+    assert "campaignId" in field_names
