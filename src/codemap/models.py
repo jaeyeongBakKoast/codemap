@@ -48,6 +48,7 @@ class JavaField(BaseModel):
     name: str
     type: str
     comment: str = ""
+    children: list[JavaField] = Field(default_factory=list)
 
 
 class Endpoint(BaseModel):

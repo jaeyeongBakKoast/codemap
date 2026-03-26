@@ -1,4 +1,12 @@
-from codemap.models import ApiSchema, Endpoint
+from codemap.models import ApiSchema, Endpoint, JavaField
+
+
+def _render_fields_tree(lines: list[str], fields: list[JavaField], depth: int = 0) -> None:
+    indent = "&nbsp;&nbsp;" * depth + ("ㄴ " if depth > 0 else "")
+    for f in fields:
+        lines.append(f"| {indent}{f.name} | {f.type} | {f.comment} |")
+        if f.children:
+            _render_fields_tree(lines, f.children, depth + 1)
 
 
 def generate_api_spec(api: ApiSchema, ai_client=None) -> str:
@@ -61,8 +69,7 @@ def generate_api_spec(api: ApiSchema, ai_client=None) -> str:
             lines.append("")
             lines.append("| 필드명 | 타입 | 설명 |")
             lines.append("|--------|------|------|")
-            for f in ep.responseFields:
-                lines.append(f"| {f.name} | {f.type} | {f.comment} |")
+            _render_fields_tree(lines, ep.responseFields)
             lines.append("")
 
         # AI: 비즈니스 로직

@@ -43,6 +43,20 @@ def _apply_border(ws, row: int, col_count: int) -> None:
         ws.cell(row=row, column=col).border = _THIN_BORDER
 
 
+def _write_fields_tree(ws, fields, row: int, col_count: int, depth: int = 0) -> int:
+    """Write JavaField tree with indentation. Returns next row."""
+    indent = "  " * depth + ("ㄴ " if depth > 0 else "")
+    for f in fields:
+        ws.cell(row=row, column=1, value=f"{indent}{f.name}")
+        ws.cell(row=row, column=2, value=f.type)
+        ws.cell(row=row, column=3, value=f.comment)
+        _apply_border(ws, row, col_count)
+        row += 1
+        if f.children:
+            row = _write_fields_tree(ws, f.children, row, col_count, depth + 1)
+    return row
+
+
 def export_table_spec_xlsx(scan: ScanResult, output: Path) -> None:
     wb = openpyxl.Workbook()
 
@@ -132,11 +146,13 @@ def export_api_spec_xlsx(scan: ScanResult, output: Path) -> None:
 
     # --- 엔드포인트별 상세 시트 ---
     for ei, ep in enumerate(scan.api.endpoints, 1):
+        # Build short sheet name: "01_GET _api_users"
         raw_name = f"{ep.method} {ep.path}"
-        # Excel sheet names cannot contain: / \ ? * [ ] :
-        for ch in r'/\?*[]':
+        for ch in r'/\?*[]:':
             raw_name = raw_name.replace(ch, "_")
-        sheet_name = raw_name[:31]
+        # Use index prefix + truncate to stay within 31 char limit
+        prefix = f"{ei:02d}_"
+        sheet_name = prefix + raw_name[:31 - len(prefix)]
         ws_ep = wb.create_sheet(title=sheet_name)
         row = 1
 
@@ -205,12 +221,7 @@ def export_api_spec_xlsx(scan: ScanResult, output: Path) -> None:
                 ws_ep.cell(row=row, column=ci, value=h)
             _style_header_row(ws_ep, row, len(field_headers))
             row += 1
-            for f in ep.responseFields:
-                ws_ep.cell(row=row, column=1, value=f.name)
-                ws_ep.cell(row=row, column=2, value=f.type)
-                ws_ep.cell(row=row, column=3, value=f.comment)
-                _apply_border(ws_ep, row, len(field_headers))
-                row += 1
+            row = _write_fields_tree(ws_ep, ep.responseFields, row, len(field_headers))
 
         _auto_width(ws_ep)
 

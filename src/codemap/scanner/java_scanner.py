@@ -437,65 +437,75 @@ def _resolve_request_fields(ep: Endpoint, class_fields: dict[str, list[JavaField
 
 
 def _resolve_response_fields(ep: Endpoint, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
-    """Resolve return type to its class fields by unwrapping generics.
+    """Resolve return type to a tree of JavaFields.
 
-    For generic wrappers like ResultResponse<CampaignResponse>:
-    - If the outer type has fields in class_fields, include them (wrapper fields)
-    - Unwrap collections (List, Set) and framework wrappers (ResponseEntity)
-    - If the inner type has fields in class_fields, include them too
-    - Result: wrapper fields + inner type fields combined
+    For ResultResponse<List<CampaignResponse>>, produces:
+      - timestamp: LocalDateTime
+      - status: int
+      - payload: List<CampaignResponse>
+          children:
+            - campaignId: Long
+            - campaignName: String
+      - message: String
     """
     if not ep.returnType:
         return []
+    return _resolve_type_tree(ep.returnType, class_fields)
 
-    result_fields: list[JavaField] = []
-    type_str = ep.returnType
 
-    # Peel layers, collecting fields from known wrapper types
+def _resolve_type_tree(type_str: str, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
+    """Recursively resolve a type string into a tree of JavaFields."""
+    # Strip framework wrappers (ResponseEntity, ApiResponse) — no useful fields
     changed = True
     while changed:
         changed = False
         outer, inner = _extract_generic_parts(type_str)
-
-        if not inner:
-            break
-
-        # Skip framework wrappers (ResponseEntity) — no useful fields
-        if outer in _FRAMEWORK_WRAPPERS:
-            type_str = inner
-            changed = True
-            continue
-
-        # Skip collection types (List, Set, Collection)
-        if outer in _COLLECTION_TYPES:
-            type_str = inner
-            changed = True
-            continue
-
-        # If outer type has fields in class_fields, it's a domain wrapper
-        if outer in class_fields:
-            result_fields.extend(class_fields[outer])
-            type_str = inner
-            changed = True
-            continue
-
-        # Unknown wrapper — stop unwrapping
-        break
-
-    # Unwrap any remaining collections
-    changed = True
-    while changed:
-        changed = False
-        outer, inner = _extract_generic_parts(type_str)
-        if outer in _COLLECTION_TYPES and inner:
+        if outer in _FRAMEWORK_WRAPPERS and inner:
             type_str = inner
             changed = True
 
-    # Add inner type fields
+    outer, inner = _extract_generic_parts(type_str)
+
+    # Case 1: Collection type — unwrap and resolve inner
+    if outer in _COLLECTION_TYPES and inner:
+        return _resolve_type_tree(inner, class_fields)
+
+    # Case 2: Domain wrapper with generic param (e.g. ResultResponse<CampaignResponse>)
+    if outer in class_fields and inner:
+        resolved_inner_type = _resolve_display_type(inner)
+        fields = []
+        for f in class_fields[outer]:
+            if _is_generic_param(f.type):
+                # Replace generic param (T, E, etc.) with resolved inner type
+                child_fields = _resolve_type_tree(inner, class_fields)
+                fields.append(JavaField(
+                    name=f.name,
+                    type=resolved_inner_type,
+                    comment=f.comment,
+                    children=child_fields,
+                ))
+            else:
+                fields.append(f)
+        return fields
+
+    # Case 3: Plain class — return its fields directly
     if type_str in class_fields:
-        result_fields.extend(class_fields[type_str])
+        return list(class_fields[type_str])
 
-    return result_fields
+    return []
+
+
+def _is_generic_param(type_str: str) -> bool:
+    """Check if a type is a generic parameter (single uppercase letter like T, E, R)."""
+    return len(type_str) == 1 and type_str.isupper()
+
+
+def _resolve_display_type(type_str: str) -> str:
+    """Build a display-friendly type, keeping collection wrappers."""
+    outer, inner = _extract_generic_parts(type_str)
+    if outer in _COLLECTION_TYPES and inner:
+        return f"List<{_resolve_display_type(inner)}>"
+    return type_str
 
 
 def _combine_paths(base: str, method: str) -> str:
