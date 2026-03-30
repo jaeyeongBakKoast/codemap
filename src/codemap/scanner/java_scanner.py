@@ -453,8 +453,12 @@ def _resolve_response_fields(ep: Endpoint, class_fields: dict[str, list[JavaFiel
     return _resolve_type_tree(ep.returnType, class_fields)
 
 
-def _resolve_type_tree(type_str: str, class_fields: dict[str, list[JavaField]]) -> list[JavaField]:
+def _resolve_type_tree(
+    type_str: str, class_fields: dict[str, list[JavaField]], _seen: set[str] | None = None,
+) -> list[JavaField]:
     """Recursively resolve a type string into a tree of JavaFields."""
+    if _seen is None:
+        _seen = set()
     # Strip framework wrappers (ResponseEntity, ApiResponse) — no useful fields
     changed = True
     while changed:
@@ -466,9 +470,15 @@ def _resolve_type_tree(type_str: str, class_fields: dict[str, list[JavaField]]) 
 
     outer, inner = _extract_generic_parts(type_str)
 
-    # Case 1: Collection type — unwrap and resolve inner
+    # Case 1: Collection type — unwrap and resolve inner (no cycle tracking)
     if outer in _COLLECTION_TYPES and inner:
-        return _resolve_type_tree(inner, class_fields)
+        return _resolve_type_tree(inner, class_fields, _seen)
+
+    # Cycle detection (only for non-collection types)
+    base_type = outer if inner else type_str
+    if base_type in _seen:
+        return []
+    _seen = _seen | {base_type}
 
     # Case 2: Domain wrapper with generic param (e.g. ResultResponse<CampaignResponse>)
     if outer in class_fields and inner:
@@ -476,8 +486,7 @@ def _resolve_type_tree(type_str: str, class_fields: dict[str, list[JavaField]]) 
         fields = []
         for f in class_fields[outer]:
             if _is_generic_param(f.type):
-                # Replace generic param (T, E, etc.) with resolved inner type
-                child_fields = _resolve_type_tree(inner, class_fields)
+                child_fields = _resolve_type_tree(inner, class_fields, _seen)
                 fields.append(JavaField(
                     name=f.name,
                     type=resolved_inner_type,
@@ -485,14 +494,29 @@ def _resolve_type_tree(type_str: str, class_fields: dict[str, list[JavaField]]) 
                     children=child_fields,
                 ))
             else:
-                fields.append(f)
+                fields.append(_enrich_field(f, class_fields, _seen))
         return fields
 
-    # Case 3: Plain class — return its fields directly
+    # Case 3: Plain class — return its fields with children resolved
     if type_str in class_fields:
-        return list(class_fields[type_str])
+        return [_enrich_field(f, class_fields, _seen) for f in class_fields[type_str]]
 
     return []
+
+
+def _enrich_field(
+    field: JavaField, class_fields: dict[str, list[JavaField]], _seen: set[str],
+) -> JavaField:
+    """If a field's type is a known class or List<KnownClass>, resolve children."""
+    children = _resolve_type_tree(field.type, class_fields, _seen)
+    if children:
+        return JavaField(
+            name=field.name,
+            type=field.type,
+            comment=field.comment,
+            children=children,
+        )
+    return field
 
 
 def _is_generic_param(type_str: str) -> bool:
