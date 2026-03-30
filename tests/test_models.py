@@ -203,3 +203,37 @@ def test_api_schema_class_fields():
 def test_api_schema_class_fields_default():
     schema = ApiSchema()
     assert schema.classFields == {}
+
+
+def test_endpoint_description_default():
+    ep = Endpoint(
+        method="GET", path="/api/users",
+        controller="UserController", service="UserService",
+    )
+    assert ep.description == ""
+
+
+def test_endpoint_description_set():
+    ep = Endpoint(
+        method="GET", path="/api/users",
+        controller="UserController", service="UserService",
+        description="사용자 목록을 조회하는 API",
+    )
+    assert ep.description == "사용자 목록을 조회하는 API"
+
+
+def test_external_call_description_default():
+    ec = ExternalCall(
+        source="GdalService", type="gdal",
+        command="gdal_translate", file="GdalService.java", line=10,
+    )
+    assert ec.description == ""
+
+
+def test_external_call_description_set():
+    ec = ExternalCall(
+        source="GdalService", type="gdal",
+        command="gdal_translate", file="GdalService.java", line=10,
+        description="래스터 이미지 형식 변환",
+    )
+    assert ec.description == "래스터 이미지 형식 변환"

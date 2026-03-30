@@ -48,6 +48,7 @@ class JavaField(BaseModel):
     name: str
     type: str
     comment: str = ""
+    children: list[JavaField] = Field(default_factory=list)
 
 
 class Endpoint(BaseModel):
@@ -60,6 +61,7 @@ class Endpoint(BaseModel):
     returnType: str = ""
     requestFields: list[JavaField] = Field(default_factory=list)
     responseFields: list[JavaField] = Field(default_factory=list)
+    description: str = ""
 
 
 class ApiSchema(BaseModel):
@@ -81,6 +83,7 @@ class ExternalCall(BaseModel):
     command: str
     file: str
     line: int
+    description: str = ""
 
     model_config = {"populate_by_name": True}
 

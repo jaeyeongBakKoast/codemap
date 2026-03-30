@@ -69,3 +69,17 @@ def test_doc_all(tmp_path):
         "doc", "all", "--from", str(scan_file), "-o", str(output_dir)
     ])
     assert result.exit_code == 0
+
+
+def test_full_pipeline_no_ai(tmp_path):
+    """Full pipeline with --no-ai should work identically to before."""
+    runner = CliRunner()
+    out_dir = tmp_path / "output"
+    result = runner.invoke(main, [
+        "--no-ai", "generate", str(FIXTURE_DIR),
+        "-o", str(out_dir), "--target", "db",
+    ])
+    assert result.exit_code == 0
+    assert (out_dir / "scan.json").exists()
+    assert (out_dir / "docs" / "table-spec.md").exists()
+    assert "# 테이블 정의서" in (out_dir / "docs" / "table-spec.md").read_text()

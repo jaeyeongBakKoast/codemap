@@ -58,3 +58,23 @@ def test_table_spec_column_comment():
     assert "고유번호" in md
     assert "이메일 주소" in md
     assert "사용자 관리" in md
+
+
+from unittest.mock import MagicMock
+
+
+def test_table_spec_with_ai_relationships():
+    from codemap.doc.table_spec import generate_table_spec
+    db = _sample_db()
+    mock_client = MagicMock()
+    mock_client.available = True
+    mock_client.chat.return_value = "- `users`는 `departments`와 다대일 관계이다."
+    md = generate_table_spec(db, ai_client=mock_client)
+    assert "## 관계 요약" in md
+    assert "departments" in md
+
+
+def test_table_spec_without_ai_unchanged():
+    from codemap.doc.table_spec import generate_table_spec
+    md = generate_table_spec(_sample_db())
+    assert "## 관계 요약" not in md

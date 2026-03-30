@@ -185,3 +185,47 @@ def test_scan_java_response_fields_unresolved():
     get_all = next((ep for ep in endpoints if ep.method == "GET" and ep.path == "/api/users"), None)
     assert get_all is not None
     assert get_all.responseFields == []
+
+
+def test_scan_java_generic_wrapper_response_fields():
+    """ResultResponse<CampaignResponse> → 트리 구조: wrapper 필드 + payload.children에 inner type"""
+    endpoints, _, class_fields = scan_java([
+        FIXTURE_DIR / "CampaignController.java",
+        FIXTURE_DIR / "ResultResponse.java",
+        FIXTURE_DIR / "CampaignResponse.java",
+    ])
+    assert "ResultResponse" in class_fields
+    assert "CampaignResponse" in class_fields
+
+    # GET /api/campaigns/{id} → ResultResponse<CampaignResponse>
+    get_one = next((ep for ep in endpoints if ep.path == "/api/campaigns/{id}"), None)
+    assert get_one is not None
+    field_names = [f.name for f in get_one.responseFields]
+    # ResultResponse 필드가 최상위에 있어야 함
+    assert "status" in field_names
+    assert "message" in field_names
+    assert "payload" in field_names
+    # payload 필드의 children에 CampaignResponse 필드가 있어야 함
+    payload = next(f for f in get_one.responseFields if f.name == "payload")
+    assert payload.type == "CampaignResponse"
+    child_names = [c.name for c in payload.children]
+    assert "campaignId" in child_names
+    assert "campaignName" in child_names
+
+
+def test_scan_java_generic_wrapper_list_response_fields():
+    """ResultResponse<List<CampaignResponse>> → payload.type이 List<CampaignResponse>"""
+    endpoints, _, class_fields = scan_java([
+        FIXTURE_DIR / "CampaignController.java",
+        FIXTURE_DIR / "ResultResponse.java",
+        FIXTURE_DIR / "CampaignResponse.java",
+    ])
+    get_all = next((ep for ep in endpoints if ep.path == "/api/campaigns"), None)
+    assert get_all is not None
+    field_names = [f.name for f in get_all.responseFields]
+    assert "status" in field_names
+    assert "payload" in field_names
+    payload = next(f for f in get_all.responseFields if f.name == "payload")
+    assert payload.type == "List<CampaignResponse>"
+    child_names = [c.name for c in payload.children]
+    assert "campaignId" in child_names
